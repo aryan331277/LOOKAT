@@ -1,0 +1,1187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LOOKAT - 64× KV-Cache Compression Without Dequantization</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #000;
+            color: #fff;
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 2rem;
+        }
+        
+        /* Hero with animated bandwidth comparison */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            position: relative;
+            padding: 4rem 0;
+        }
+        
+        .hero-title {
+            font-size: clamp(3rem, 10vw, 8rem);
+            font-weight: 900;
+            letter-spacing: -0.05em;
+            margin-bottom: 2rem;
+            background: linear-gradient(to right, #60a5fa, #a78bfa, #f472b6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .hero-subtitle {
+            font-size: clamp(1.5rem, 3vw, 2.5rem);
+            color: #9ca3af;
+            max-width: 900px;
+            margin-bottom: 4rem;
+            font-weight: 300;
+        }
+        
+        /* Live bandwidth comparison animation */
+        .bandwidth-demo {
+            background: #111;
+            border-radius: 24px;
+            padding: 3rem;
+            margin: 4rem 0;
+            border: 1px solid #333;
+        }
+        
+        .demo-title {
+            text-align: center;
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 3rem;
+            color: #60a5fa;
+        }
+        
+        .comparison-rows {
+            display: grid;
+            gap: 3rem;
+        }
+        
+        .method-row {
+            display: grid;
+            grid-template-columns: 200px 1fr 150px;
+            gap: 2rem;
+            align-items: center;
+        }
+        
+        .method-label {
+            font-weight: 700;
+            font-size: 1.25rem;
+        }
+        
+        .bandwidth-bar-container {
+            background: #1a1a1a;
+            height: 60px;
+            border-radius: 12px;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .bandwidth-bar {
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 1rem;
+            font-weight: 700;
+            transition: width 2s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+        }
+        
+        .bar-int4 {
+            background: linear-gradient(90deg, #ef4444, #dc2626);
+            width: 0;
+            animation: fillInt4 2s ease-out forwards;
+        }
+        
+        .bar-lookat {
+            background: linear-gradient(90deg, #10b981, #059669);
+            width: 0;
+            animation: fillLookat 2s ease-out forwards;
+            animation-delay: 0.3s;
+        }
+        
+        @keyframes fillInt4 {
+            to { width: 100%; }
+        }
+        
+        @keyframes fillLookat {
+            to { width: 3.125%; }
+        }
+        
+        .bandwidth-value {
+            font-weight: 700;
+            font-size: 1.25rem;
+        }
+        
+        .value-bad {
+            color: #ef4444;
+        }
+        
+        .value-good {
+            color: #10b981;
+        }
+        
+        .demo-insight {
+            margin-top: 2rem;
+            padding: 1.5rem;
+            background: rgba(16, 185, 129, 0.1);
+            border-left: 4px solid #10b981;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+        
+        /* Quick facts grid */
+        .facts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+            margin: 4rem 0;
+        }
+        
+        .fact-card {
+            background: #111;
+            padding: 2.5rem;
+            border-radius: 16px;
+            border: 1px solid #333;
+            text-align: center;
+        }
+        
+        .fact-value {
+            font-size: 4rem;
+            font-weight: 900;
+            background: linear-gradient(135deg, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            line-height: 1;
+            margin-bottom: 1rem;
+        }
+        
+        .fact-label {
+            color: #9ca3af;
+            font-size: 1.1rem;
+        }
+        
+        /* Section */
+        section {
+            padding: 8rem 0;
+            border-top: 1px solid #222;
+        }
+        
+        h2 {
+            font-size: clamp(2.5rem, 5vw, 4rem);
+            font-weight: 800;
+            margin-bottom: 2rem;
+            letter-spacing: -0.03em;
+        }
+        
+        .section-subtitle {
+            font-size: 1.5rem;
+            color: #9ca3af;
+            margin-bottom: 4rem;
+            max-width: 800px;
+        }
+        
+        /* Problem visualization */
+        .problem-viz {
+            background: #111;
+            border-radius: 24px;
+            padding: 4rem;
+            margin: 3rem 0;
+            border: 1px solid #333;
+        }
+        
+        .viz-title {
+            text-align: center;
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin-bottom: 3rem;
+        }
+        
+        .flow-container {
+            display: flex;
+            align-items: center;
+            gap: 2rem;
+            margin: 2rem 0;
+        }
+        
+        .flow-box {
+            flex: 1;
+            background: #1a1a1a;
+            border: 2px solid #333;
+            border-radius: 16px;
+            padding: 2rem;
+            text-align: center;
+            position: relative;
+        }
+        
+        .flow-box.bad {
+            border-color: #ef4444;
+        }
+        
+        .flow-label {
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: #60a5fa;
+            font-weight: 700;
+            margin-bottom: 1rem;
+        }
+        
+        .flow-content {
+            font-size: 1.1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .flow-cost {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-top: 1rem;
+        }
+        
+        .cost-bad {
+            color: #ef4444;
+        }
+        
+        .flow-arrow {
+            font-size: 3rem;
+            color: #60a5fa;
+            flex-shrink: 0;
+        }
+        
+        .problem-conclusion {
+            margin-top: 3rem;
+            padding: 2rem;
+            background: rgba(239, 68, 68, 0.1);
+            border: 2px solid #ef4444;
+            border-radius: 16px;
+            text-align: center;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #ef4444;
+        }
+        
+        /* Insight callout */
+        .insight {
+            background: linear-gradient(135deg, rgba(96, 165, 250, 0.1), rgba(167, 139, 250, 0.1));
+            border-left: 6px solid #60a5fa;
+            padding: 3rem;
+            margin: 4rem 0;
+            border-radius: 16px;
+        }
+        
+        .insight-header {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #60a5fa;
+            margin-bottom: 1.5rem;
+        }
+        
+        .insight-body {
+            font-size: 1.25rem;
+            line-height: 1.8;
+            color: #e5e7eb;
+        }
+        
+        /* Side-by-side comparison */
+        .vs-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 3rem;
+            margin: 4rem 0;
+        }
+        
+        .method-card {
+            background: #111;
+            border-radius: 24px;
+            padding: 3rem;
+            border: 2px solid #333;
+        }
+        
+        .method-card.winner {
+            border-color: #10b981;
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.05), rgba(16, 185, 129, 0));
+        }
+        
+        .method-header {
+            font-size: 2rem;
+            font-weight: 800;
+            margin-bottom: 2rem;
+            text-align: center;
+        }
+        
+        .method-steps {
+            margin: 2rem 0;
+        }
+        
+        .step {
+            padding: 1.5rem;
+            background: #1a1a1a;
+            border-radius: 12px;
+            margin: 1rem 0;
+            border-left: 4px solid #60a5fa;
+        }
+        
+        .step-num {
+            font-size: 0.85rem;
+            color: #60a5fa;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+        
+        .step-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+        
+        .step-detail {
+            color: #9ca3af;
+            font-size: 0.95rem;
+        }
+        
+        .method-result {
+            margin-top: 2rem;
+            padding: 2rem;
+            background: #1a1a1a;
+            border-radius: 12px;
+            text-align: center;
+        }
+        
+        .result-label {
+            color: #9ca3af;
+            margin-bottom: 0.5rem;
+        }
+        
+        .result-value {
+            font-size: 2rem;
+            font-weight: 800;
+        }
+        
+        .method-card.winner .result-value {
+            color: #10b981;
+        }
+        
+        /* PQ visual */
+        .pq-demo {
+            background: #111;
+            border-radius: 24px;
+            padding: 4rem;
+            margin: 4rem 0;
+            border: 1px solid #333;
+        }
+        
+        .vector-viz {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1.5rem;
+            margin: 3rem 0;
+        }
+        
+        .subspace {
+            background: linear-gradient(135deg, #60a5fa, #a78bfa);
+            border-radius: 16px;
+            padding: 2rem;
+            text-align: center;
+            color: #000;
+            font-weight: 700;
+        }
+        
+        .subspace-label {
+            font-size: 1.25rem;
+            margin-bottom: 1rem;
+        }
+        
+        .subspace-dims {
+            opacity: 0.7;
+            margin-bottom: 1.5rem;
+        }
+        
+        .subspace-arrow {
+            font-size: 2rem;
+            margin: 1rem 0;
+        }
+        
+        .subspace-index {
+            font-size: 2rem;
+            background: rgba(0, 0, 0, 0.2);
+            padding: 0.5rem;
+            border-radius: 8px;
+        }
+        
+        .compression-math {
+            text-align: center;
+            margin-top: 3rem;
+            padding: 2rem;
+            background: rgba(16, 185, 129, 0.1);
+            border-radius: 16px;
+        }
+        
+        .math-line {
+            font-size: 1.5rem;
+            margin: 1rem 0;
+        }
+        
+        .math-result {
+            font-size: 3rem;
+            font-weight: 900;
+            color: #10b981;
+            margin-top: 1.5rem;
+        }
+        
+        /* Lookup table animation */
+        .lookup-demo {
+            background: #111;
+            border-radius: 24px;
+            padding: 4rem;
+            margin: 4rem 0;
+            border: 1px solid #333;
+        }
+        
+        .lookup-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 2rem;
+            margin: 3rem 0;
+        }
+        
+        .lut-box {
+            background: #1a1a1a;
+            border: 2px solid #60a5fa;
+            border-radius: 16px;
+            padding: 2rem;
+            text-align: center;
+        }
+        
+        .lut-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #60a5fa;
+            margin-bottom: 1rem;
+        }
+        
+        .lut-formula {
+            font-family: 'Courier New', monospace;
+            color: #9ca3af;
+            margin-bottom: 1rem;
+        }
+        
+        .lut-size {
+            color: #10b981;
+            font-weight: 700;
+        }
+        
+        .lookup-example {
+            margin-top: 3rem;
+            padding: 2rem;
+            background: #1a1a1a;
+            border-radius: 16px;
+            font-family: 'Courier New', monospace;
+            font-size: 1.1rem;
+        }
+        
+        .code-line {
+            margin: 0.5rem 0;
+        }
+        
+        .code-comment {
+            color: #6b7280;
+        }
+        
+        .code-highlight {
+            color: #10b981;
+            font-weight: 700;
+        }
+        
+        /* Results table */
+        .results {
+            margin: 4rem 0;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #111;
+            border-radius: 16px;
+            overflow: hidden;
+        }
+        
+        thead {
+            background: #1a1a1a;
+        }
+        
+        th {
+            padding: 1.5rem;
+            text-align: left;
+            font-weight: 700;
+            font-size: 1.1rem;
+            border-bottom: 2px solid #333;
+        }
+        
+        td {
+            padding: 1.5rem;
+            border-bottom: 1px solid #222;
+        }
+        
+        tr.highlight {
+            background: rgba(16, 185, 129, 0.05);
+            border-left: 4px solid #10b981;
+        }
+        
+        .metric-value {
+            font-weight: 700;
+            font-size: 1.1rem;
+        }
+        
+        .metric-good {
+            color: #10b981;
+        }
+        
+        .metric-ok {
+            color: #f59e0b;
+        }
+        
+        /* Use cases */
+        .use-cases {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 3rem;
+            margin: 4rem 0;
+        }
+        
+        .use-case {
+            background: #111;
+            border-radius: 24px;
+            padding: 3rem;
+            border: 2px solid #333;
+        }
+        
+        .use-case.good {
+            border-color: #10b981;
+        }
+        
+        .use-case.bad {
+            border-color: #ef4444;
+        }
+        
+        .use-case h3 {
+            font-size: 1.75rem;
+            margin-bottom: 2rem;
+        }
+        
+        .use-case.good h3 {
+            color: #10b981;
+        }
+        
+        .use-case.bad h3 {
+            color: #ef4444;
+        }
+        
+        .use-case ul {
+            list-style: none;
+        }
+        
+        .use-case li {
+            padding: 1rem 0;
+            padding-left: 2rem;
+            position: relative;
+            font-size: 1.1rem;
+        }
+        
+        .use-case li::before {
+            position: absolute;
+            left: 0;
+            font-weight: 900;
+            font-size: 1.25rem;
+        }
+        
+        .use-case.good li::before {
+            content: '✓';
+            color: #10b981;
+        }
+        
+        .use-case.bad li::before {
+            content: '✗';
+            color: #ef4444;
+        }
+        
+        /* CTA */
+        .cta {
+            text-align: center;
+            padding: 6rem 2rem;
+            background: linear-gradient(135deg, rgba(96, 165, 250, 0.1), rgba(167, 139, 250, 0.1));
+            border-radius: 24px;
+            margin: 6rem 0;
+        }
+        
+        .cta h2 {
+            margin-bottom: 2rem;
+        }
+        
+        .cta-buttons {
+            display: flex;
+            gap: 2rem;
+            justify-content: center;
+            margin-top: 3rem;
+        }
+        
+        .btn {
+            padding: 1.25rem 3rem;
+            border-radius: 12px;
+            font-size: 1.25rem;
+            font-weight: 700;
+            text-decoration: none;
+            transition: transform 0.2s;
+            display: inline-block;
+        }
+        
+        .btn-primary {
+            background: #60a5fa;
+            color: #000;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            background: #3b82f6;
+        }
+        
+        .btn-secondary {
+            background: transparent;
+            color: #60a5fa;
+            border: 2px solid #60a5fa;
+        }
+        
+        .btn-secondary:hover {
+            background: rgba(96, 165, 250, 0.1);
+        }
+        
+        footer {
+            padding: 4rem 2rem;
+            text-align: center;
+            color: #6b7280;
+            border-top: 1px solid #222;
+        }
+        
+        @media (max-width: 968px) {
+            .vs-grid,
+            .use-cases {
+                grid-template-columns: 1fr;
+            }
+            
+            .vector-viz,
+            .lookup-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .flow-container {
+                flex-direction: column;
+            }
+            
+            .flow-arrow {
+                transform: rotate(90deg);
+            }
+            
+            .method-row {
+                grid-template-columns: 1fr;
+                gap: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Hero -->
+    <div class="hero">
+        <div class="container">
+            <h1 class="hero-title">LOOKAT</h1>
+            <p class="hero-subtitle">
+                64× KV-cache compression without dequantization. Compute attention scores directly on compressed representations using product quantization and lookup tables.
+            </p>
+            
+            <div class="facts-grid">
+                <div class="fact-card">
+                    <div class="fact-value">64×</div>
+                    <div class="fact-label">Compression Ratio</div>
+                </div>
+                <div class="fact-card">
+                    <div class="fact-value">95.7%</div>
+                    <div class="fact-label">Output Fidelity</div>
+                </div>
+                <div class="fact-card">
+                    <div class="fact-value">32×</div>
+                    <div class="fact-label">Bandwidth Reduction</div>
+                </div>
+                <div class="fact-card">
+                    <div class="fact-value">0</div>
+                    <div class="fact-label">Training Required</div>
+                </div>
+            </div>
+            
+            <!-- Live bandwidth comparison -->
+            <div class="bandwidth-demo">
+                <div class="demo-title">Memory Bandwidth Per 512-Key Attention</div>
+                <div class="comparison-rows">
+                    <div class="method-row">
+                        <div class="method-label">INT4</div>
+                        <div class="bandwidth-bar-container">
+                            <div class="bandwidth-bar bar-int4">65,536 bytes</div>
+                        </div>
+                        <div class="bandwidth-value value-bad">65 KB</div>
+                    </div>
+                    <div class="method-row">
+                        <div class="method-label">LOOKAT</div>
+                        <div class="bandwidth-bar-container">
+                            <div class="bandwidth-bar bar-lookat">2,048 bytes</div>
+                        </div>
+                        <div class="bandwidth-value value-good">2 KB</div>
+                    </div>
+                </div>
+                <div class="demo-insight">
+                    INT4 compresses storage but dequantization still loads 65KB from DRAM.<br>
+                    LOOKAT eliminates dequantization entirely—only 2KB loaded.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Problem -->
+    <section>
+        <div class="container">
+            <h2>Why Quantization Fails</h2>
+            <p class="section-subtitle">
+                Standard quantization (INT4/INT8) compresses storage but provides zero bandwidth savings on edge devices.
+            </p>
+            
+            <div class="problem-viz">
+                <div class="viz-title">INT4 Quantization: The Hidden Bottleneck</div>
+                
+                <div class="flow-container">
+                    <div class="flow-box">
+                        <div class="flow-label">STEP 1: DRAM Load</div>
+                        <div class="flow-content">Load INT4 keys</div>
+                        <div class="flow-cost">32 bytes</div>
+                    </div>
+                    
+                    <div class="flow-arrow">→</div>
+                    
+                    <div class="flow-box bad">
+                        <div class="flow-label">STEP 2: Dequantize</div>
+                        <div class="flow-content">INT4 → FP16 in registers</div>
+                        <div class="flow-cost cost-bad">Expands to 128 bytes</div>
+                    </div>
+                    
+                    <div class="flow-arrow">→</div>
+                    
+                    <div class="flow-box">
+                        <div class="flow-label">STEP 3: Compute</div>
+                        <div class="flow-content">Q·K<sup>T</sup> in FP16</div>
+                        <div class="flow-cost">64 multiply-adds</div>
+                    </div>
+                </div>
+                
+                <div class="problem-conclusion">
+                    Dequantization consumes the same I/O bandwidth as uncompressed FP16<br>
+                    Result: 16× storage compression, 0× bandwidth savings
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Insight -->
+    <section>
+        <div class="container">
+            <h2>The Core Insight</h2>
+            <p class="section-subtitle">
+                Attention scoring is mathematically identical to inner-product similarity search in vector databases.
+            </p>
+            
+            <div class="insight">
+                <div class="insight-header">Attention = Vector Retrieval</div>
+                <div class="insight-body">
+                    Attention computes q·k<sub>ℓ</sub> for all keys and ranks them via softmax. Vector databases solve this exact problem at 100× compression using <strong>asymmetric distance computation (ADC)</strong>: queries stay in full precision, database vectors remain compressed, and distances are computed via lookup tables—no decompression ever occurs.
+                </div>
+            </div>
+            
+            <div class="insight">
+                <div class="insight-header">Why Rank Correlation Matters</div>
+                <div class="insight-body">
+                    Softmax only requires <strong>preserving the relative ordering</strong> of attention scores, not their exact values. ADC maintains rank correlation ρ > 0.99 at 100× compression. If q·k<sub>1</sub> > q·k<sub>2</sub> in the original, it remains true in the approximation. That's all attention needs.
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- How it works -->
+    <section>
+        <div class="container">
+            <h2>LOOKAT vs Standard Attention</h2>
+            
+            <div class="vs-grid">
+                <div class="method-card">
+                    <div class="method-header">Standard Attention</div>
+                    
+                    <div class="method-steps">
+                        <div class="step">
+                            <div class="step-num">STEP 1</div>
+                            <div class="step-title">Load FP16 Keys</div>
+                            <div class="step-detail">128 bytes per key from DRAM</div>
+                        </div>
+                        
+                        <div class="step">
+                            <div class="step-num">STEP 2</div>
+                            <div class="step-title">Matrix Multiply</div>
+                            <div class="step-detail">64 FP16 multiply-adds per key</div>
+                        </div>
+                        
+                        <div class="step">
+                            <div class="step-num">STEP 3</div>
+                            <div class="step-title">Softmax</div>
+                            <div class="step-detail">Normalize attention distribution</div>
+                        </div>
+                    </div>
+                    
+                    <div class="method-result">
+                        <div class="result-label">For L=512 keys:</div>
+                        <div class="result-value">65,536 bytes</div>
+                        <div class="result-label">32,768 FLOPs</div>
+                    </div>
+                </div>
+                
+                <div class="method-card winner">
+                    <div class="method-header">LOOKAT Attention</div>
+                    
+                    <div class="method-steps">
+                        <div class="step">
+                            <div class="step-num">STEP 1</div>
+                            <div class="step-title">Precompute Tables</div>
+                            <div class="step-detail">4 lookup tables × 256 entries (once)</div>
+                        </div>
+                        
+                        <div class="step">
+                            <div class="step-num">STEP 2</div>
+                            <div class="step-title">Load Indices</div>
+                            <div class="step-detail">4 bytes per key from DRAM</div>
+                        </div>
+                        
+                        <div class="step">
+                            <div class="step-num">STEP 3</div>
+                            <div class="step-title">Lookup & Sum</div>
+                            <div class="step-detail">4 table lookups + 3 additions per key</div>
+                        </div>
+                        
+                        <div class="step">
+                            <div class="step-num">STEP 4</div>
+                            <div class="step-title">Softmax</div>
+                            <div class="step-detail">Normalize attention distribution</div>
+                        </div>
+                    </div>
+                    
+                    <div class="method-result">
+                        <div class="result-label">For L=512 keys:</div>
+                        <div class="result-value">2,048 bytes</div>
+                        <div class="result-label">2,048 operations</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Product Quantization -->
+    <section>
+        <div class="container">
+            <h2>Product Quantization</h2>
+            <p class="section-subtitle">
+                Decompose 64D key vectors into 4 subspaces, quantize each independently using learned codebooks.
+            </p>
+            
+            <div class="pq-demo">
+                <div class="viz-title">64D Key Vector → 4 Compressed Indices</div>
+                
+                <div class="vector-viz">
+                    <div class="subspace">
+                        <div class="subspace-label">Subspace 1</div>
+                        <div class="subspace-dims">Dims 0-15</div>
+                        <div class="subspace-arrow">↓</div>
+                        <div class="subspace-index">c₁</div>
+                    </div>
+                    
+                    <div class="subspace">
+                        <div class="subspace-label">Subspace 2</div>
+                        <div class="subspace-dims">Dims 16-31</div>
+                        <div class="subspace-arrow">↓</div>
+                        <div class="subspace-index">c₂</div>
+                    </div>
+                    
+                    <div class="subspace">
+                        <div class="subspace-label">Subspace 3</div>
+                        <div class="subspace-dims">Dims 32-47</div>
+                        <div class="subspace-arrow">↓</div>
+                        <div class="subspace-index">c₃</div>
+                    </div>
+                    
+                    <div class="subspace">
+                        <div class="subspace-label">Subspace 4</div>
+                        <div class="subspace-dims">Dims 48-63</div>
+                        <div class="subspace-arrow">↓</div>
+                        <div class="subspace-index">c₄</div>
+                    </div>
+                </div>
+                
+                <div class="compression-math">
+                    <div class="math-line">64 dims × 2 bytes (FP16) = 128 bytes</div>
+                    <div class="math-line" style="font-size: 2rem;">↓</div>
+                    <div class="math-line">4 indices × 1 byte (uint8) = 4 bytes</div>
+                    <div class="math-result">32× Compression</div>
+                </div>
+            </div>
+            
+            <div class="insight">
+                <div class="insight-header">Codebook Learning</div>
+                <div class="insight-body">
+                    K-Means clustering learns 256 prototype patterns per subspace from calibration data. Each 16D chunk is replaced by the index (0-255) of its nearest centroid. Total storage: 4 subspaces × 256 centroids × 16 dims × 2 bytes = <strong>32KB per layer</strong>.
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Lookup Tables -->
+    <section>
+        <div class="container">
+            <h2>Asymmetric Distance Computation</h2>
+            <p class="section-subtitle">
+                Compute attention scores directly via precomputed lookup tables. No key reconstruction ever occurs.
+            </p>
+            
+            <div class="lookup-demo">
+                <div class="viz-title">Lookup Table Construction (Once Per Query)</div>
+                
+                <div class="lookup-grid">
+                    <div class="lut-box">
+                        <div class="lut-title">LUT₁</div>
+                        <div class="lut-formula">q⁽¹⁾ · C₁ᵀ</div>
+                        <div class="lut-size">256 values</div>
+                    </div>
+                    
+                    <div class="lut-box">
+                        <div class="lut-title">LUT₂</div>
+                        <div class="lut-formula">q⁽²⁾ · C₂ᵀ</div>
+                        <div class="lut-size">256 values</div>
+                    </div>
+                    
+                    <div class="lut-box">
+                        <div class="lut-title">LUT₃</div>
+                        <div class="lut-formula">q⁽³⁾ · C₃ᵀ</div>
+                        <div class="lut-size">256 values</div>
+                    </div>
+                    
+                    <div class="lut-box">
+                        <div class="lut-title">LUT₄</div>
+                        <div class="lut-formula">q⁽⁴⁾ · C₄ᵀ</div>
+                        <div class="lut-size">256 values</div>
+                    </div>
+                </div>
+                
+                <div class="lookup-example">
+                    <div class="code-line"><span class="code-comment"># For compressed key k̃ = [c₁, c₂, c₃, c₄]</span></div>
+                    <div class="code-line"><span class="code-comment"># Attention score approximation:</span></div>
+                    <div class="code-line"></div>
+                    <div class="code-line">q·k ≈ <span class="code-highlight">LUT₁[c₁] + LUT₂[c₂] + LUT₃[c₃] + LUT₄[c₄]</span></div>
+                    <div class="code-line"></div>
+                    <div class="code-line"><span class="code-comment"># No decompression. No FP16 math.</span></div>
+                    <div class="code-line"><span class="code-comment"># Just 4 lookups + 3 additions per key.</span></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Results -->
+    <section>
+        <div class="container">
+            <h2>Experimental Results</h2>
+            <p class="section-subtitle">
+                Evaluated on GPT-2 across natural language, code, and technical writing. Sequence lengths up to 1024 tokens.
+            </p>
+            
+            <div class="results">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Method</th>
+                            <th>Compression</th>
+                            <th>Memory/Token</th>
+                            <th>Cosine Sim ↑</th>
+                            <th>Spearman ρ ↑</th>
+                            <th>KL Div ↓</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>FP16 Baseline</td>
+                            <td>1×</td>
+                            <td>128 B</td>
+                            <td class="metric-value metric-good">1.000</td>
+                            <td class="metric-value metric-good">1.000</td>
+                            <td class="metric-value metric-good">0.000</td>
+                        </tr>
+                        <tr>
+                            <td>INT8</td>
+                            <td>8×</td>
+                            <td>16 B</td>
+                            <td class="metric-value metric-good">1.000</td>
+                            <td class="metric-value metric-good">0.9999</td>
+                            <td class="metric-value metric-good">0.005</td>
+                        </tr>
+                        <tr>
+                            <td>INT4</td>
+                            <td>16×</td>
+                            <td>8 B</td>
+                            <td class="metric-value metric-good">0.987</td>
+                            <td class="metric-value metric-good">0.973</td>
+                            <td class="metric-value metric-ok">1.674</td>
+                        </tr>
+                        <tr class="highlight">
+                            <td><strong>LOOKAT-4</strong></td>
+                            <td><strong>32×</strong></td>
+                            <td><strong>4 B</strong></td>
+                            <td class="metric-value metric-good">0.950</td>
+                            <td class="metric-value metric-good">0.957</td>
+                            <td class="metric-value metric-ok">4.682</td>
+                        </tr>
+                        <tr class="highlight">
+                            <td><strong>LOOKAT-2</strong></td>
+                            <td><strong>64×</strong></td>
+                            <td><strong>2 B</strong></td>
+                            <td class="metric-value metric-good">0.957</td>
+                            <td class="metric-value metric-good">0.959</td>
+                            <td class="metric-value metric-ok">4.466</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="insight">
+                <div class="insight-header">Key Takeaways</div>
+                <div class="insight-body">
+                    <strong>LOOKAT-2 achieves 64× compression at 95.7% fidelity</strong>—compression ratios impossible for scalar quantization. Rank correlation exceeds 0.95, confirming attention structure remains intact. <strong>LOOKAT-4 at 32× compression</strong> offers the optimal quality-efficiency tradeoff: 95.0% cosine similarity with 8× better compression than INT4.
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- When to Use -->
+    <section>
+        <div class="container">
+            <h2>When Should You Use LOOKAT?</h2>
+            
+            <div class="use-cases">
+                <div class="use-case good">
+                    <h3>✓ Ideal Use Cases</h3>
+                    <ul>
+                        <li>Edge device deployment (phones, embedded systems)</li>
+                        <li>Bandwidth-constrained environments (~50 GB/s)</li>
+                        <li>Post-training compression (no retraining available)</li>
+                        <li>Long-context inference (512+ tokens)</li>
+                        <li>Memory-bound inference scenarios</li>
+                        <li>Need >16× compression ratios</li>
+                    </ul>
+                </div>
+                
+                <div class="use-case bad">
+                    <h3>✗ Not Recommended</h3>
+                    <ul>
+                        <li>High-bandwidth datacenter GPUs (>1 TB/s)</li>
+                        <li>Tasks requiring exact numerical precision</li>
+                        <li>Very short sequences (<64 tokens)</li>
+                        <li>When INT8 quality is already insufficient</li>
+                        <li>Scenarios where 8× compression is adequate</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="insight">
+                <div class="insight-header">Implementation Requirements</div>
+                <div class="insight-body">
+                    Drop-in replacement for standard attention—no architecture changes required. One-time codebook learning via K-Means on calibration data (a few hundred samples). 32KB codebook storage per layer. No training or fine-tuning needed. Compatible with existing transformer implementations.
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Technical Guarantees -->
+    <section>
+        <div class="container">
+            <h2>Theoretical Guarantees</h2>
+            
+            <div class="lookup-demo">
+                <div class="lookup-example">
+                    <div class="code-line"><span class="code-comment"># Rank correlation bound for PQ with m subspaces, K centroids:</span></div>
+                    <div class="code-line"></div>
+                    <div class="code-line">E[ρ(s, ŝ)] ≥ 1 - O(d_k / (m·K))</div>
+                    <div class="code-line"></div>
+                    <div class="code-line"><span class="code-comment"># For LOOKAT-4: d_k=64, m=4, K=256</span></div>
+                    <div class="code-line"><span class="code-comment"># Theoretical bound: ρ ≥ 1 - O(64/1024) ≈ 1 - O(0.0625)</span></div>
+                    <div class="code-line"><span class="code-comment"># Empirical result: ρ = 0.957 ✓</span></div>
+                </div>
+            </div>
+            
+            <div class="insight">
+                <div class="insight-header">Complexity Analysis</div>
+                <div class="insight-body">
+                    <strong>Standard Attention:</strong> O(L·d<sub>k</sub>) memory transfers + O(L·d<sub>k</sub>) FLOPs<br>
+                    <strong>LOOKAT:</strong> O(m·K) precompute + O(L·m) lookups + O(L) memory transfers<br><br>
+                    For L=512, d<sub>k</sub>=64, m=4, K=256:<br>
+                    • FLOPs: 32,768 → 3,072 (10.6× reduction)<br>
+                    • Bandwidth: 65,536 bytes → 2,048 bytes (32× reduction)
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA -->
+    <div class="cta">
+        <div class="container">
+            <h2>Deploy LLMs on Edge Devices</h2>
+            <p class="section-subtitle" style="margin: 0 auto 2rem;">
+                LOOKAT enables compression ratios impossible for scalar quantization while maintaining attention quality.
+            </p>
+            
+            <div class="cta-buttons">
+                <a href="#" class="btn btn-primary">Read the Paper</a>
+                <a href="#" class="btn btn-secondary">View on GitHub</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <p>LOOKAT: Lookup-Optimized Key-Attention for Memory-Efficient Transformers</p>
+            <p style="margin-top: 1rem; font-size: 0.9rem;">
+                Drop-in replacement. No training. No architecture changes. 64× compression.
+            </p>
+        </div>
+    </footer>
+
+</body>
+</html>
